@@ -79,5 +79,9 @@ def upload_video():
 
     return jsonify({"status": "procesando", "archivo": f"{base_name}.mp4"})
 
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
 if __name__ == "__main__":
     app.run()
