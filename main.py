@@ -1,12 +1,12 @@
 import requests
+import base64
 import json
 import os
-import base64
+import threading
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Credenciales desde variables de entorno de Render
 ZOOM_CLIENT_ID = os.environ.get("ZOOM_CLIENT_ID")
 ZOOM_CLIENT_SECRET = os.environ.get("ZOOM_CLIENT_SECRET")
 ZOOM_ACCOUNT_ID = os.environ.get("ZOOM_ACCOUNT_ID")
@@ -15,12 +15,7 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 GOOGLE_REFRESH_TOKEN = os.environ.get("GOOGLE_REFRESH_TOKEN")
 FOLDER_ID = os.environ.get("FOLDER_ID")
 
-@app.route("/upload-video", methods=["POST"])
-def upload_video():
-    data = request.get_json()
-    video_url = data.get("video_url")
-    base_name = data.get("base_name")
-
+def procesar_video(video_url, base_name):
     # 1. Zoom token
     creds = base64.b64encode(f"{ZOOM_CLIENT_ID}:{ZOOM_CLIENT_SECRET}".encode()).decode()
     zoom_token = requests.post(
@@ -44,6 +39,7 @@ def upload_video():
     # 3. Descargar de Zoom en streaming
     zoom_resp = requests.get(video_url, headers=zoom_headers, stream=True)
     total_size = int(zoom_resp.headers.get("content-length", 0))
+    print(f"Descargando video: {total_size} bytes")
 
     # 4. Iniciar sesion resumable en Drive
     init_resp = requests.post(
@@ -54,7 +50,7 @@ def upload_video():
     upload_url = init_resp.headers.get("Location")
 
     # 5. Subir en chunks
-    chunk_size = 10 * 1024 * 1024  # 10MB
+    chunk_size = 10 * 1024 * 1024
     uploaded = 0
     for chunk in zoom_resp.iter_content(chunk_size=chunk_size):
         end = uploaded + len(chunk) - 1
@@ -67,8 +63,21 @@ def upload_video():
             data=chunk
         )
         uploaded += len(chunk)
+        print(f"Progreso: {uploaded}/{total_size}")
 
-    return jsonify({"status": "ok", "uploaded": uploaded})
+    print(f"Video subido: {base_name}.mp4")
+
+@app.route("/upload-video", methods=["POST"])
+def upload_video():
+    data = request.get_json()
+    video_url = data.get("video_url")
+    base_name = data.get("base_name")
+
+    # Responder inmediatamente y procesar en background
+    thread = threading.Thread(target=procesar_video, args=(video_url, base_name))
+    thread.start()
+
+    return jsonify({"status": "procesando", "archivo": f"{base_name}.mp4"})
 
 if __name__ == "__main__":
     app.run()
